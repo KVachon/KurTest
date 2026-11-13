@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KurTest</title>
+<style>
+/* Bundled fonts (SIL OFL 1.1, see page/fonts), so the page works offline and calls nobody. */
+@font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/inter-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Inter';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/inter-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/inter-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format('woff2')}
+/* The live page for KurTest. Deliberately dark-only: one instrument panel on a black desk.
+   Layout: header (status, elapsed, counts, run progress), pace chart, the open group's ticks,
+   the group grid, failures, and a quiet footer. Every region has a fixed height while running. */
+:root{
+  --page:#060607; --panel:#131315; --raise:#1a1a1d; --well:#18181b;
+  --hair:rgba(255,255,255,.06); --hair-2:rgba(255,255,255,.1); --hair-3:rgba(255,255,255,.18);
+  --ink:#f2f2f3; --ink-2:#b4b4ba; --ink-3:#7b7b83; --faint:#4e4e55;
+  --pass:#5ad46d; --pass-dim:rgba(90,212,109,.16); --fail:#ff5f57; --fail-dim:rgba(255,95,87,.1); --fail-line:rgba(255,95,87,.38); --flaky:#f0b545;
+  --todo:#26262a; --run:#ffffff;
+  --f:'Inter',system-ui,'Segoe UI',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  --r:8px; --r-lg:18px; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page) radial-gradient(1200px 500px at 50% -120px,rgba(255,255,255,.05),transparent 70%) no-repeat;color:var(--ink);font:14px/1.5 var(--f);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+.gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.col{max-width:1100px;margin:0 auto}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono)}
+@keyframes pulse{50%{opacity:.35}}
+@keyframes ring{0%{transform:scale(.6);opacity:.55}100%{transform:scale(2.4);opacity:0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px}
+
+main{padding-block:28px 40px}
+.panel{background:linear-gradient(180deg,#161618,var(--panel) 220px);border:1px solid var(--hair);border-radius:var(--r-lg);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 40px 100px -30px rgba(0,0,0,.8);
+  padding:26px 28px 18px;display:grid;gap:30px;grid-template-columns:minmax(0,1fr)}
+.panel>*{min-width:0}
+
+/* header */
+.head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:16px;row-gap:18px;align-items:center}
+.orb{position:relative;width:40px;height:40px;border-radius:12px;background:var(--raise);border:1px solid var(--hair);display:grid;place-items:center}
+.orb i{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.orb.run i{background:var(--run);box-shadow:0 0 10px rgba(255,255,255,.6)}
+.orb.run::before{content:"";position:absolute;inset:9px;border-radius:50%;border:1.5px solid rgba(255,255,255,.1);border-top-color:rgba(255,255,255,.85);animation:spin 1.1s linear infinite}
+.orb.ok i{background:var(--pass);box-shadow:0 0 12px var(--pass)} .orb.bad i{background:var(--fail);box-shadow:0 0 12px var(--fail)}
+.ttl{min-width:0}
+.ttl h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.ttl p{margin:3px 0 0;color:var(--ink-3);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttl code{font:12.5px var(--mono);color:var(--ink-2)}
+.right{display:grid;justify-items:end;gap:6px}
+.el{font-size:28px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.counts{display:flex;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 10px;border-radius:999px;background:var(--raise);border:1px solid var(--hair);font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--pass)}
+.chip.f i{background:var(--faint)}
+.chip.f.on{color:var(--fail);border-color:var(--fail-line);background:var(--fail-dim)} .chip.f.on i{background:var(--fail);box-shadow:0 0 8px var(--fail)}
+.chip b{font-weight:600;color:var(--ink)} .chip.f.on b{color:var(--fail)}
+.prog{grid-column:1 / -1;display:flex;height:4px;border-radius:999px;background:var(--todo);overflow:hidden;gap:0}
+.prog i{display:block;height:100%;transition:width .25s ease}
+.prog .p{background:linear-gradient(90deg,rgba(90,212,109,.55),var(--pass))} .prog .f{background:var(--fail)}
+
+/* section headers */
+.hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;min-width:0;margin-bottom:12px}
+.hd h2{margin:0;font-size:13px;font-weight:500;color:var(--ink-2);letter-spacing:.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hd .meta{font:12px var(--mono);color:var(--ink-3);white-space:nowrap;flex:none}
+.rate{font:500 15px var(--f);color:var(--ink);white-space:nowrap;letter-spacing:-.01em;max-width:70%;overflow:hidden;text-overflow:ellipsis}
+.rate small{font-size:12px;color:var(--ink-3);font-weight:400;margin-left:2px}
+
+/* pace */
+.trace{position:relative;padding:12px 14px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,0) 70%),var(--well);border:1px solid var(--hair);overflow:hidden}
+.trace svg{display:block;width:100%;height:auto;overflow:visible}
+.trace .pip{left:14px;top:12px}
+.legend{display:inline-flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--ink-3);white-space:nowrap}
+.legend i{display:block;width:10px;height:10px;border-radius:2px;background:#fff}
+.pip{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
+.pip::before,.pip::after{content:"";position:absolute;left:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--run)}
+.pip::before{animation:ring 1.6s ease-out infinite}
+.pip::after{box-shadow:0 0 0 3px rgba(255,255,255,.12),0 0 14px rgba(255,255,255,.7)}
+.pip[hidden]{display:none}
+.axis{position:relative;height:18px;margin-top:4px}
+.axis span{position:absolute;top:0;font:10.5px/18px var(--mono);color:var(--faint);white-space:nowrap;transform:translateX(-50%)}
+.axis span.su{transform:none;padding-left:6px;border-left:1px solid var(--hair-3);color:var(--ink-3)}
+.chart{position:relative}
+.tip{position:absolute;z-index:3;pointer-events:none;min-width:150px;max-width:300px;padding:8px 10px;border-radius:10px;background:rgba(28,28,31,.96);border:1px solid var(--hair-2);box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12px;line-height:1.45;color:var(--ink-2)}
+.tip[hidden]{display:none}
+.tip b{display:block;font:600 15px var(--f);color:var(--ink);letter-spacing:-.01em}
+.tip b small{font:500 11px var(--mono);margin-left:6px;color:var(--ink-3)} .tip b small.f{color:var(--fail)} .tip b small.y{color:var(--flaky)}
+.tip .i{display:block;font:11.5px var(--mono);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tip .d{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tip .p{display:block;color:var(--ink-3);margin-top:2px}
+.now{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;grid-auto-rows:24px;column-gap:10px;align-items:center;margin-top:8px;font-size:13px;line-height:24px;min-width:0}
+.now>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.now .k{font:500 11px/20px var(--mono);color:var(--ink-2);background:var(--raise);border:1px solid var(--hair);border-radius:6px;padding:0 7px}
+.now .k:empty{visibility:hidden}
+.now .id{font:500 12.5px var(--mono);color:var(--ink);max-width:280px}
+.now .d{color:var(--ink-3)}
+.now .eta{color:var(--ink-3);font-size:12.5px;text-align:right}
+.now .eta b{color:var(--ink-2);font-weight:500}
+
+/* open group */
+.open .hd{margin-bottom:12px}
+.open h2{color:var(--ink);font-size:15px;font-weight:500}
+.open h2 .key{font:500 12px var(--mono);color:var(--ink-3);margin-right:8px}
+.ticks{display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start}
+.ticks i{width:7px;height:22px;border-radius:2.5px;background:var(--todo);transition:background .25s,box-shadow .25s}
+.ticks i.p{background:var(--pass)} .ticks i.f{background:var(--fail);box-shadow:0 0 10px rgba(255,95,87,.5)} .ticks i.y{background:var(--flaky)}
+.ticks i.s{background:var(--faint)}
+.ticks i.r{background:var(--run);box-shadow:0 0 10px rgba(255,255,255,.55);animation:pulse .9s ease-in-out infinite}
+
+/* grid */
+.suite{display:grid;gap:10px}
+.suite+.suite{margin-top:20px}
+.sl{display:flex;align-items:center;gap:10px;font:500 11.5px var(--mono);color:var(--ink-3);white-space:nowrap}
+.sl{overflow:hidden;min-width:0}
+.sl::after{content:"";flex:1;height:1px;background:var(--hair)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:6px}
+.cell{all:unset;box-sizing:border-box;cursor:pointer;position:relative;border:1px solid var(--hair);border-radius:var(--r);padding:9px 10px 10px;display:grid;gap:8px;min-width:0;
+  background:rgba(255,255,255,.015);transition:border-color .2s,background .2s,box-shadow .2s}
+.cell:hover{border-color:var(--hair-3);background:rgba(255,255,255,.035)}
+.cell:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px}
+.cell .t{display:flex;align-items:baseline;gap:7px;min-width:0}
+.cell .k{font:500 12px var(--mono);color:var(--ink);flex:none}
+.cell .n{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cell.idle{background:transparent} .cell.idle .k{color:var(--ink-3)} .cell.idle .n{color:var(--faint)}
+.cell.live{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 3px rgba(255,255,255,.04),0 0 24px -6px rgba(255,255,255,.25)}
+.cell[aria-pressed="true"]{border-color:rgba(255,255,255,.7);background:rgba(255,255,255,.05)}
+.cell.bad{border-color:var(--fail-line);background:var(--fail-dim)} .cell.bad .k{color:var(--fail)}
+.meter{position:relative;height:3px;border-radius:999px;background:var(--todo);overflow:hidden}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--pass);border-radius:999px;transition:width .25s ease}
+.meter b{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;background:var(--fail)}
+.cell.live .meter i{background:var(--run)}
+.cell.br .n{color:var(--ink);font-weight:500;font-size:12.5px} .cell.br.idle .n{color:var(--ink-3)}
+
+/* failures */
+.failsec .hd h2{color:var(--ink)}
+.fails{display:grid}
+/* one line per failing feature, opened to show its tests; tests that failed the same way share a line */
+.fg{border-top:1px solid var(--hair);animation:in .35s ease-out}
+.fg:first-child{border-top:0}
+@keyframes in{from{opacity:0;transform:translateY(-3px)}}
+.fh{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr) auto 10px;gap:14px;align-items:center;padding:9px 0;font-size:13px}
+.fh:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px;border-radius:6px}
+.fh .id{display:flex;align-items:center;gap:8px;font:500 12.5px var(--mono);color:var(--fail);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fh .id::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.fg.y .fh .id{color:var(--flaky)}
+.fh .sm{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.fh .sm small{color:var(--ink-3);font-size:12px;margin-left:6px}
+.fh .ct{font:12px var(--mono);color:var(--ink-3);white-space:nowrap}
+.fh .cv{width:10px;height:10px;color:var(--ink-3);transition:transform .15s}
+.fh[aria-expanded="true"] .cv{transform:rotate(90deg)}
+.fh:hover .sm,.fh:hover .cv{color:var(--ink)}
+.fb{display:grid;gap:10px;padding:0 0 14px 164px}
+.fb[hidden]{display:none}
+.fr{display:grid;gap:4px;min-width:0}
+.fr .tn{font:12px var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.fr .tn small{color:var(--ink-3);font-size:11.5px}
+.fr .why{justify-self:start;font:12px/1.5 var(--mono);color:var(--ink-2);background:var(--raise);border:1px solid var(--hair);border-radius:6px;padding:2px 8px;overflow-wrap:anywhere;max-width:100%;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;cursor:pointer}
+.fr .why.full{-webkit-line-clamp:unset}
+.none{display:flex;align-items:center;gap:9px;margin:0;color:var(--ink-3);font-size:13px}
+.none svg{flex:none;color:var(--pass)}
+.none[hidden]{display:none}
+
+/* footer */
+.ctrl.off{visibility:hidden}
+.sim b{font-weight:400;color:var(--ink-3)}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--hair);padding-top:16px;margin-top:-6px}
+.sim{font:11.5px var(--mono);color:var(--faint)}
+.ctrl{display:flex;gap:8px;align-items:center}
+.seg{display:flex;padding:2px;border-radius:9px;background:var(--well);border:1px solid var(--hair)}
+.seg button{all:unset;cursor:pointer;font:500 11.5px/24px var(--mono);color:var(--ink-3);padding:0 9px;border-radius:7px;transition:background .15s,color .15s}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--raise);color:var(--ink);box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 1px 3px rgba(0,0,0,.5)}
+.seg button:focus-visible,.btn:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:9px;background:var(--well);border:1px solid var(--hair);font-size:12.5px;color:var(--ink-2);transition:border-color .15s,color .15s}
+.btn:hover{border-color:var(--hair-3);color:var(--ink)}
+
+@media (max-width:640px){
+  main{padding-block:16px 28px}
+  .panel{padding:18px 16px 14px;gap:26px;border-radius:16px}
+  .head{grid-template-columns:auto minmax(0,1fr)}
+  .right{grid-column:1 / -1;grid-template-columns:auto 1fr;align-items:center;justify-items:start;gap:12px}
+  .counts{justify-self:end}
+  .el{font-size:24px}
+  .fh{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto 10px;gap:10px}.fh .id{max-width:90px}.fb{padding-left:14px}
+  .now{grid-template-columns:auto minmax(0,1fr)}.now .id{max-width:none}.now .d,.now .eta{grid-column:1 / -1;text-align:left}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+  .grid.keyed{grid-template-columns:repeat(auto-fill,minmax(50px,1fr))}
+  .grid.keyed .cell:not(.br) .n{display:none}
+  .sim{display:none}.foot{justify-content:flex-end}
+}
+
+/* run history: a second panel under the live one, so the live panel's layout never changes */
+.hist{margin-top:16px;gap:12px;padding-bottom:16px}
+.hist .hd{margin-bottom:0;align-items:center}
+.hist .hd h2{color:var(--ink)}
+.hctl{display:flex;gap:8px;align-items:center;min-width:0}
+.hist .seg{overflow-x:auto;max-width:100%;scrollbar-width:none}
+.hist .seg button{white-space:nowrap}
+.runs{display:grid}
+.hrow{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;column-gap:14px;row-gap:2px;align-items:center;
+  padding:10px 12px;margin:0 -12px;border-radius:var(--r);transition:background .15s}
+.hrow+.hrow{box-shadow:0 -1px 0 var(--hair)}
+.hrow:hover{background:rgba(255,255,255,.03)}
+.hrow:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:-2px}
+.hrow[aria-current="true"]{background:rgba(255,255,255,.055)}
+.hrow .o{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.hrow .o.pass{background:var(--pass);box-shadow:0 0 8px rgba(90,212,109,.5)}
+.hrow .o.fail{background:var(--fail);box-shadow:0 0 8px rgba(255,95,87,.5)}
+.hrow .o.live{background:var(--run);box-shadow:0 0 8px rgba(255,255,255,.6);animation:pulse 1.2s ease-in-out infinite}
+.hrow .w{min-width:0}
+.hrow .nm,.hrow .sub{display:block}
+.hrow .nm{font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hrow .nm code{font:12px var(--mono);color:var(--ink-3);margin-left:6px}
+.hrow .sub{font:11.5px var(--mono);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hrow .du{font:12px var(--mono);color:var(--ink-3);text-align:right;min-width:56px}
+.hrow .ct{font-size:12.5px;color:var(--ink-2);white-space:nowrap;text-align:right;min-width:150px}
+.hrow .ct b{font-weight:600;color:var(--ink)} .hrow .ct .bad,.hrow .ct .bad b{color:var(--fail)}
+.hempty{margin:0;color:var(--ink-3);font-size:13px}
+.trend[hidden]{display:none}
+.trend svg{display:block;width:100%;height:auto;overflow:visible;cursor:pointer}
+.trend .legend i.f{background:var(--fail)} .trend .legend i.y{background:var(--flaky)}
+.more{justify-self:start}
+.more[hidden],.hempty[hidden],#livebtn[hidden]{display:none}
+@media (max-width:640px){
+  .hist .hd{flex-wrap:wrap}
+  .hrow{grid-template-columns:auto minmax(0,1fr) auto}
+  .hrow .du{display:none}
+  .hrow .ct{min-width:0}
+}
+</style>
+</head>
+<body>
+<main class="gut"><div class="col panel">
+  <header class="head">
+    <div class="orb" id="dot" aria-hidden="true"><i></i></div>
+    <div class="ttl"><h1 id="h">Waiting for a test run</h1><p id="sub"><span id="proj">KurTest</span><span id="cmdw" hidden> · <code id="cmd"></code></span></p></div>
+    <div class="right">
+      <div class="el num" id="el">0s</div>
+      <div class="counts">
+        <span class="chip"><i></i><span class="num"><b id="np">0</b> passed</span></span>
+        <span class="chip f" id="nfw"><i></i><span class="num"><b id="nf">0</b> failed</span></span>
+      </div>
+    </div>
+    <div class="prog" aria-hidden="true"><i class="p" id="pbp" style="width:0"></i><i class="f" id="pbf" style="width:0"></i></div>
+  </header>
+
+  <section>
+    <div class="hd"><h2>How long each test took</h2><span class="rate num" id="rate">0</span></div>
+    <div class="chart"><div class="trace"><svg id="svg" viewBox="0 0 1000 100" role="img" aria-label="Every test as a square, one row per feature; the brighter the square, the longer the test took. Failed tests are red, flaky amber, tests not run yet are empty."></svg><span class="pip" id="pip" hidden></span></div>
+    <div class="tip" id="tip" hidden></div></div>
+    <div class="now" aria-live="polite"><span class="k" id="nk"></span><span class="id" id="ni"></span><span class="d" id="nd"></span><span class="eta num" id="etaw"><b id="nl">0</b> to go<span id="eta"></span></span></div>
+  </section>
+
+  <section class="open" aria-live="polite">
+    <div class="hd"><h2 id="oh"></h2><span class="meta num" id="oc"></span></div>
+    <div class="ticks" id="ot"></div>
+  </section>
+
+  <section id="suites"></section>
+
+  <section class="failsec">
+    <div class="hd"><h2>Failures</h2><span class="meta num" id="fc"></span></div>
+    <div class="fails" id="fails"></div>
+    <p class="none" id="none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-opacity=".5"/><path d="M5 8.2l2 2 4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>None so far.</p>
+  </section>
+
+  <footer class="foot">
+    <span class="sim" id="src"></span>
+    <div class="ctrl off" id="ctrl">
+      <div class="seg" role="group" aria-label="Replay speed"><button id="s1" aria-pressed="false">1×</button><button id="s10" aria-pressed="true">10×</button><button id="s60" aria-pressed="false">60×</button></div>
+      <button class="btn" id="again"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 1.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button>
+    </div>
+  </footer>
+</div>
+  <section class="col panel hist trend" id="trend" aria-label="Recent runs by feature" hidden>
+    <div class="hd"><h2 id="trh">Recent runs</h2><span class="legend" id="trl"></span></div>
+    <div class="chart"><svg id="tsvg" role="img" aria-label="One row per feature, one column per recent run, oldest on the left. Red: a test failed. Amber: a test was flaky. Otherwise the brighter the cell, the longer the feature took compared with its usual time."></svg><div class="tip" id="ttip" hidden></div></div>
+  </section>
+  <section class="col panel hist" aria-label="Past runs">
+    <div class="hd"><h2>Runs</h2><div class="hctl"><button class="btn" id="livebtn" hidden>Back to live</button><div class="seg" id="pf" role="group" aria-label="Project"></div></div></div>
+    <div class="runs" id="runs"></div>
+    <p class="hempty" id="hempty" hidden>No runs yet.</p>
+    <button class="btn more" id="more" hidden>Show more</button>
+  </section>
+</main>
+
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const qs=new URLSearchParams(location.search);
+const TOKEN=qs.get('token')||'';
+let PIN=qs.get('run');                // ?run=<id> keeps the page on one run
+const api=p=>p+(TOKEN?(p.includes('?')?'&':'?')+'token='+encodeURIComponent(TOKEN):'');
+const secs=ms=>{const s=Math.max(0,Math.round(ms/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s':Math.floor(s/3600)+'h '+String(Math.floor(s/60)%60).padStart(2,'0')+'m'};
+const clockTime=t=>new Date(t).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+
+// ---------- the run being shown ----------
+// R: {id, meta, start, log:[events in seq order], lastSeq, endRel, previous}
+let R=null,ci=0,live=true,speed=10,offset=0,loading=null,pend=[];
+const snow=()=>Date.now()+offset;
+
+// ---------- model ----------
+let suites=[],sby={},groups=[],gby={},tby={},total=0,cur=null,shown=null,pinned=null,lastSuite=null;
+let pass=0,fail=0,skip=0,clock=0,doneMs=0,doneN=0,skel={},expectMs=0;
+// chart state
+let bars=[],slots=[],SLOTS=1,CEIL=5000,FLOOR=5,slowest=null,hover=null,finished=false;
+
+function resetModel(){
+  suites=[];sby={};groups=[];gby={};tby={};total=0;cur=null;shown=null;pinned=null;lastSuite=null;
+  pass=0;fail=0;skip=0;clock=0;doneMs=0;doneN=0;finished=false;
+  bars=[];slots=[];slowest=null;hover=null;
+  const prev=R&&R.previous;
+  skel={};(prev?.suites||[]).forEach(s=>skel[s.suite]=s);
+  // The height scale (log, so quick unit tests and slow browser tests both read) comes from the last run's
+  // quickest and slowest tests and stays put. A slower test changes it once, in one step (see finish).
+  const prevMs=(prev?.suites||[]).flatMap(s=>s.tests.map(t=>t.ms)).filter(v=>v>0).sort((a,b)=>a-b);
+  if(prevMs.length>=5){CEIL=Math.max(50,prevMs.at(-1)*2);FLOOR=Math.max(1,Math.min(prevMs[Math.floor(prevMs.length*.05)]*.5,CEIL/20))}
+  else{CEIL=5000;FLOOR=5}
+  expectMs=prev?.durationMs||0;
+  $('suites').innerHTML='';$('fails').innerHTML='';fby=new Map();nF=0;nY=0;$('none').hidden=false;$('fc').textContent='';
+  $('ot').innerHTML='';$('oh').innerHTML='';$('oc').textContent='';
+  $('nk').textContent='';$('ni').textContent='';$('nd').textContent='';
+  $('dot').className='orb'+(R?' run':'');$('h').textContent=R?'Running tests':'Waiting for a test run';
+  const m=R?.meta||{};$('proj').textContent=R?(m.project||'unnamed'):'KurTest';
+  $('cmd').textContent=m.command||'';$('cmdw').hidden=!m.command;
+  $('src').innerHTML=R?`${esc(m.host||'unknown machine')} <b>· started ${clockTime(R.start)}</b>`:'';
+  $('ctrl').classList.add('off');
+  // Lay out every suite from the last run straight away, so the page doesn't grow as suites start.
+  (prev?.suites||[]).forEach(sk=>{ensureSuite(sk.suite,sk.label);sk.tests.forEach(t=>addTest(sk.suite,t))});
+  SLOTS=Math.max(1,total);
+  sizeTicks();
+}
+
+function ensureSuite(id,label){
+  let s=sby[id];
+  if(!s){
+    s=sby[id]={id,label:label||skel[id]?.label||id,groups:[],n:0};suites.push(s);
+    const el=document.createElement('div');el.className='suite';
+    el.innerHTML=`<div class="sl"></div><div class="grid"></div>`;$('suites').appendChild(el);
+    s.sl=el.firstChild;s.grid=el.lastChild;
+  }else if(label)s.label=label;
+  s.sl.textContent=`${s.label} · ${s.n}`;
+  return s;
+}
+function ensureGroup(s,key,name){
+  const k=s.id+'\0'+key;let o=gby[k];
+  if(o){if(name&&!o.name){o.name=name;cellText(o)}return o}
+  o=gby[k]={suite:s,key,name:name||'',items:[],done:0,bad:0,ms:0};groups.push(o);s.groups.push(o);
+  const b=document.createElement('button');b.className='cell idle';b.setAttribute('aria-pressed','false');
+  b.innerHTML=`<span class="t"><span class="k"></span><span class="n"></span></span><span class="meter"><i style="width:0"></i></span>`;
+  b.onclick=()=>{pinned=pinned===o?null:o;show(pinned||cur?.g||o)};
+  s.grid.appendChild(b);o.el=b;o.fill=b.querySelector('.meter i');o.meter=b.querySelector('.meter');cellText(o);
+  return o;
+}
+// A group with a name shows its key and name (and only the key on phones); one without shows its name.
+function cellText(o){const b=o.el,keyed=!!o.name&&o.name!==o.key;
+  b.querySelector('.k').textContent=keyed?o.key:'';b.querySelector('.n').textContent=keyed?o.name:o.key;
+  b.querySelector('.k').hidden=!keyed;b.classList.toggle('br',!keyed);b.title=keyed?`${o.key} · ${o.name}`:o.key;
+  if(keyed)o.suite.grid.classList.add('keyed')}
+function addTest(sid,t){
+  const s=ensureSuite(sid),k=sid+'\0'+t.id;let it=tby[k];
+  if(it){if(t.desc&&!it.d)it.d=t.desc;if(t.groupName&&!it.g.name){it.g.name=t.groupName;cellText(it.g)}return it}
+  const o=ensureGroup(s,t.group||s.label,t.groupName);
+  it=tby[k]={id:t.id,d:t.desc||'',g:o,i:o.items.length,prevMs:t.ms,st:'',slot:slots.length};o.items.push(it);slots.push(it);
+  s.n++;total++;s.sl.textContent=`${s.label} · ${s.n}`;
+  if(shown===o)$('ot').insertAdjacentHTML('beforeend',tickHtml(it));
+  ticksDirty=true;
+  return it;
+}
+
+// ---------- open group (ticks) ----------
+const tickHtml=it=>`<i class="${it.st}" title="${esc((it.g.name?it.id+': ':'')+(it.d||it.id))}"></i>`;
+function show(o){if(!o)return;shown=o;groups.forEach(x=>x.el.setAttribute('aria-pressed',x===o));
+  const keyed=o.name&&o.name!==o.key;
+  $('oh').innerHTML=(keyed?`<span class="key">${esc(o.key)}</span>`+esc(o.name):esc(o.key));
+  $('ot').innerHTML=o.items.map(tickHtml).join('');count(o)}
+function count(o){$('oc').textContent=`${o.done} of ${o.items.length}`+(o.bad?` · ${o.bad} failed`:'')+(o.done?` · ${secs(o.ms)}`:'')}
+function setTick(it){if(shown===it.g){const e=$('ot').children[it.i];if(e)e.className=it.st}}
+// Reserve room for the largest group, so switching groups never moves the page.
+let ticksDirty=false;
+function sizeTicks(){ticksDirty=false;const ot=$('ot'),keep=ot.innerHTML,maxN=Math.max(1,...groups.map(o=>o.items.length));
+  ot.style.minHeight='';ot.innerHTML='<i></i>'.repeat(maxN);ot.style.minHeight=ot.offsetHeight+'px';ot.innerHTML=keep}
+addEventListener('resize',sizeTicks);document.fonts&&document.fonts.ready.then(sizeTicks);
+
+// ---------- events ----------
+function apply(ev){
+  switch(ev.type){
+    case 'run-start':break;
+    case 'suite-start':{
+      const s=ensureSuite(ev.suite,ev.label);
+      if(ev.command){$('cmd').textContent=ev.command;$('cmdw').hidden=false}
+      // The plan lays the grid out now. Without one, use the last run's tests for this suite.
+      const prevMs={};(skel[ev.suite]?.tests||[]).forEach(t=>prevMs[t.id]=t.ms);
+      (ev.tests||[]).forEach(t=>addTest(ev.suite,{...t,ms:t.ms??prevMs[t.id]}));
+      if(!bars.length)SLOTS=Math.max(SLOTS,total);
+      s.lastEnd=clock;lastSuite=s;break}
+    case 'test-start':{const it=addTest(ev.suite,ev);if(it.st&&it.st!=='r')break;begin(it);break}
+    case 'test-end':{const it=addTest(ev.suite,ev);if(it.st&&it.st!=='r')break;
+      if(cur!==it)begin(it);finish(it,ev);break}
+    case 'run-end':finish_run(ev.status);break;
+  }
+}
+function begin(it){const o=it.g,s=o.suite;cur=it;it.st='r';it.at=clock;
+  lastSuite=s;
+  groups.forEach(x=>x.el.classList.toggle('live',x===o));o.el.classList.remove('idle');
+  if(!pinned&&shown!==o)show(o);else setTick(it);
+  const keyed=o.name&&o.name!==o.key;
+  $('nk').textContent=keyed?o.key:s.label;$('ni').textContent=keyed?it.id:o.key;$('nd').textContent=it.d}
+function finish(it,ev){const o=it.g,s=o.suite;o.done++;
+  // Without a reported time, a test took from when it started (or the suite's last test ended) until now.
+  const from=Math.min(it.at??clock,s.lastEnd??clock),ms=ev.ms??Math.max(0,clock-from);s.lastEnd=clock;
+  o.ms+=ms;doneMs+=ms;doneN++;it.ms=ms;bars.push(it);
+  // Slower than the scale allows: the scale changes once, with room to spare, rather than creeping.
+  if(ms>CEIL)CEIL=ms*2;if(!slowest||ms>slowest.ms)slowest=it;
+  if(ev.status==='fail'){fail++;o.bad++;it.st='f';addFail(it,ev.reason||'failed');
+    const m=document.createElement('b');m.style.left=`${it.i/o.items.length*100}%`;o.meter.appendChild(m)}
+  else if(ev.status==='skip'){skip++;it.st='s'}
+  else{pass++;it.st=ev.status==='flaky'?'y':'p';if(ev.status==='flaky')addFail(it,ev.reason||'passed on retry',1)}
+  it.done=true;o.fill.style.width=(o.done/o.items.length*100)+'%';o.el.classList.toggle('bad',!!o.bad);setTick(it);if(shown===o)count(o);
+  if(cur===it)cur=null}
+// Failures, one line per feature. A feature opens to list its tests, and tests that failed for the same
+// reason share one entry. The first failing feature starts open; the rest open on click.
+let fby=new Map(),nF=0,nY=0;
+const chev='<svg class="cv" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2l3 3-3 3"/></svg>';
+function addFail(it,why,fl){$('none').hidden=true;const o=it.g;let f=fby.get(o);
+  if(!f){f={o,n:0,y:0,rs:[],open:fby.size===0};const e=document.createElement('div');e.className='fg';
+    e.innerHTML=`<button class="fh"><span class="id"></span><span class="sm"></span><span class="ct num"></span>${chev}</button><div class="fb"></div>`;
+    $('fails').appendChild(e);f.el=e;f.btn=e.firstChild;f.body=e.lastChild;
+    f.btn.onclick=()=>{f.open=!f.open;drawFail(f)};
+    f.body.onclick=ev=>{const w=ev.target.closest('.why');if(w)w.classList.toggle('full')};fby.set(o,f)}
+  if(fl){f.y++;nY++}else{f.n++;nF++}
+  let r=f.rs.find(r=>r.why===why&&r.fl===!!fl);if(!r)f.rs.push(r={why,fl:!!fl,items:[]});r.items.push(it);
+  drawFail(f);$('fc').textContent=`${nF} failed`+(nY?` · ${nY} flaky`:'')}
+function drawFail(f){const o=f.o,keyed=o.name&&o.name!==o.key;
+  f.el.classList.toggle('y',!f.n);f.btn.setAttribute('aria-expanded',f.open);
+  f.btn.querySelector('.id').textContent=o.key;f.btn.title=keyed?`${o.key} · ${o.name}`:o.key;
+  // Closed, the line says why most of them failed; open, it names the feature.
+  const top=[...f.rs].sort((a,b)=>b.items.length-a.items.length)[0];
+  f.btn.querySelector('.sm').innerHTML=f.open?esc(keyed?o.name:''):esc((top.fl?'flaky · ':'')+top.why)+(f.rs.length>1?`<small>+${f.rs.length-1} other reason${f.rs.length>2?'s':''}</small>`:'');
+  f.btn.querySelector('.ct').textContent=[f.n?`${f.n} failed`:'',f.y?`${f.y} flaky`:''].filter(Boolean).join(' · ');
+  f.body.hidden=!f.open;if(!f.open){f.body.innerHTML='';return}
+  const nm=it=>keyed?it.id:(it.d||it.id);
+  f.body.innerHTML=f.rs.map(r=>{const ids=r.items.slice(0,4).map(nm).join(', '),more=r.items.length>4?` <small>+${r.items.length-4} more</small>`:'';
+    const one=r.items.length===1&&keyed&&r.items[0].d&&r.items[0].d!==r.items[0].id?` <small>${esc(r.items[0].d)}</small>`:'';
+    return `<div class="fr"><span class="tn" title="${esc(r.items.map(nm).join('\n'))}">${esc(ids)}${more}${one}</span><span class="why">${r.fl?'flaky · ':''}${esc(r.why)}</span></div>`}).join('')}
+function finish_run(status){finished=true;cur=null;groups.forEach(x=>{x.el.classList.remove('live');if(x.done)x.el.classList.remove('idle')});
+  groups.forEach(o=>o.items.forEach(it=>{if(it.st==='r'){it.st='';setTick(it)}}));
+  const bad=fail>0||status==='fail';
+  $('dot').className='orb '+(status==='stopped'?'':bad?'bad':'ok');
+  $('h').textContent=status==='stopped'?'Run stopped':fail?`${fail} test${fail===1?'':'s'} failed`:bad?'Tests failed':'All tests passed';
+  $('nk').textContent='';$('ni').textContent='';$('nd').textContent=`Finished in ${secs(clock)}`;
+  $('ctrl').classList.remove('off')}
+
+// ---------- chart ----------
+// One bar per test, its height how long the test took (log scale). Every test has a fixed slot in run order,
+// laid out from the plan or the last run, so bars sit under their feature and never move once drawn. Slots
+// still to come show last run's time as a faint bar, so the shape of the run ahead is there from the start.
+const fmtMs=ms=>ms<1000?Math.round(ms)+'ms':ms<60000?(ms/1000).toFixed(ms<10000?1:0)+'s':secs(ms);
+// Time left: each test that hasn't finished costs what it took last run, or the average so far.
+function timeLeft(){if(!total||finished)return null;const avg=doneN?doneMs/doneN:null;let left=0,unknown=0;
+  groups.forEach(o=>o.items.forEach(it=>{if(it.done)return;const ms=it.prevMs??avg;if(ms==null){unknown++;return}left+=ms}));
+  if(unknown)return null;if(cur&&cur.at!=null)left=Math.max(0,left-(clock-cur.at));return left}
+const GUT=44;
+// Every test is a square in its feature's row, in run order, so the whole run is one picture that fills in.
+// Brightness is how long the test took, on a log scale fixed from the last run (it changes once, in one step,
+// only if a test is slower than that allows). Squares never move: rows and positions come from the plan or the
+// last run, and a new test is added at the end of its row.
+let cellsAt=[];
+const shade=ms=>{const v=Math.min(1,Math.max(0,Math.log(Math.max(ms,FLOOR)/FLOOR)/Math.log(CEIL/FLOOR)));return .1+.85*v};
+function layout(){const svg=$('svg'),W=svg.clientWidth||1000,narrow=W<520;
+  // A big run (many features) sets its features in two columns, so the grid stays about half as tall.
+  const two=!narrow&&W>=720&&groups.length>14,CG=32,colW=two?(W-CG)/2:W,LW=narrow?76:two?112:132;
+  const maxN=Math.max(8,...groups.map(o=>o.items.length));
+  // Squares stay big enough to see and hover; a long feature wraps onto more lines rather than shrinking them.
+  const cs=Math.max(narrow?12:10,Math.min(16,Math.floor((colW-LW)/maxN))),gap=2,SH=22,per=Math.max(1,Math.floor((colW-LW)/cs)),pad=cs<13?13-cs:0;
+  const hOf=o=>{const lines=Math.max(1,Math.ceil(o.items.length/per));return lines*cs+(lines>1?3:0)+pad};
+  const rows=[];let yy=0;
+  suites.forEach((su,k)=>{if(suites.length>1){rows.push({suite:su,y:yy});yy+=SH}
+    const gs=su.groups,tot=gs.reduce((a,o)=>a+hOf(o),0);let y=yy,x=0,acc=0,bottom=yy;
+    gs.forEach(o=>{
+      // Move to the second column once the first holds half the height.
+      if(two&&!x&&acc>0&&acc+hOf(o)/2>tot/2){x=colW+CG;y=yy}
+      rows.push({g:o,x,y});y+=hOf(o);acc+=hOf(o);bottom=Math.max(bottom,y)});
+    yy=bottom;if(k<suites.length-1)yy+=6});
+  return {svg,W,LW,cs,gap,per,rows,H:Math.max(yy,cs),narrow,two}}
+function runMs(it){return clock-Math.min(it.at,it.g.suite.lastEnd??it.at)}
+function draw(){const {svg,W,LW,cs,gap,per,rows,H,narrow}=layout();svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('height',H);
+  const c=cs-gap,rx=c>=10?2.5:c>=6?1.5:1,hv=hover;let s='';cellsAt=[];
+  rows.forEach(r=>{
+    if(r.suite){s+=`<text x="0" y="${r.y+13}" font-size="10.5" font-family="IBM Plex Mono,ui-monospace,monospace" fill="#7b7b83">${esc(r.suite.label)}</text>`;return}
+    const o=r.g,keyed=o.name&&o.name!==o.key,ty=r.y+c/2+3.5,X=r.x;
+    const fit=(t,n)=>t.length>n?t.slice(0,Math.max(1,n-1))+'…':t;
+    s+=`<text x="${X}" y="${ty}" font-size="11" font-family="IBM Plex Mono,ui-monospace,monospace" fill="${o.bad?'#ff5f57':'#b4b4ba'}">${esc(fit(o.key,Math.floor((LW-8)/6.7)))}</text>`;
+    const nx=o.key.length*6.8+8,room=Math.floor((LW-nx-8)/6.4);
+    if(keyed&&!narrow&&room>=4)s+=`<text x="${X+nx}" y="${ty}" font-size="11.5" font-family="Inter,system-ui,sans-serif" fill="#7b7b83">${esc(fit(o.name,room))}</text>`;
+    o.items.forEach((it,i)=>{const x=X+LW+(i%per)*cs,y=r.y+Math.floor(i/per)*cs;cellsAt.push([x,y,it]);let fill='#fff',op=.045,extra='';
+      if(it.done){if(it.st==='f'){fill='#ff5f57';op=1}else if(it.st==='y'){fill='#f0b545';op=.9}else if(it.st==='s'){op=0;extra=` stroke="#fff" stroke-opacity=".28" stroke-width="1"`}else op=shade(it.ms)}
+      else if(it===cur&&!finished){op=Math.max(.25,shade(runMs(it)))}
+      if(it===hv)extra+=` stroke="#fff" stroke-width="1.5"`;
+      const inset=it.st==='s'&&it.done?.5:0;
+      s+=`<rect x="${x+inset}" y="${y+inset}" width="${c-2*inset}" height="${c-2*inset}" rx="${rx}" fill="${fill}" fill-opacity="${op}"${extra}/>`})});
+  svg.innerHTML=s;
+  const pip=$('pip');pip.hidden=true;
+  if(cur&&!finished&&cur.at!=null){const at=cellsAt.find(a=>a[2]===cur);if(at){pip.hidden=false;pip.style.transform=`translate(${at[0]+c/2}px,${at[1]+c/2}px)`}}
+  tip()}
+function tip(){const t=$('tip'),it=hover;if(!it){t.hidden=true;return}
+  const at=cellsAt.find(a=>a[2]===it);if(!at){t.hidden=true;return}
+  const {W,cs}=layout(),keyed=it.g.name&&it.g.name!==it.g.key;
+  const st=it.st==='f'?'<small class="f">failed</small>':it.st==='y'?'<small class="y">flaky</small>':'';
+  const val=it.done?(it.st==='s'?'Skipped':fmtMs(it.ms)):it===cur?fmtMs(runMs(it)):'Not run yet';
+  const prev=it.prevMs!=null?`Last run ${fmtMs(it.prevMs)}`:'';
+  t.innerHTML=`<b>${val}${it.done&&it.st!=='s'?st:it===cur?'<small>running</small>':''}</b><span class="i"></span><span class="d"></span>${prev?`<span class="p">${prev}</span>`:''}`;
+  t.querySelector('.i').textContent=keyed?it.id:`${it.g.key}`;t.querySelector('.d').textContent=it.d||(keyed?'':it.id);
+  t.hidden=false;const tw=t.offsetWidth,th=t.offsetHeight,x=at[0]+14,y=at[1]+12;
+  t.style.left=(x+cs+10+tw<=W+28?x+cs+10:Math.max(0,x-10-tw))+'px';t.style.top=Math.max(0,y+cs/2-th/2)+'px'}
+// The header shows the scale: from quick to slow, with the times at each end.
+function rateHtml(){const sw=[.1,.31,.53,.74,.95].map(o=>`<i style="opacity:${o}"></i>`).join('');
+  return `<span class="legend">${fmtMs(FLOOR)} ${sw} ${fmtMs(CEIL)}</span>`}
+$('svg').addEventListener('pointermove',e=>{const r=e.currentTarget.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top,{cs}=layout();
+  const a=cellsAt.find(([x,y])=>px>=x-1&&px<x+cs&&py>=y-1&&py<y+cs);const h=a?a[2]:null;if(h!==hover){hover=h;draw()}});
+$('svg').addEventListener('pointerleave',()=>{hover=null;draw()});
+addEventListener('resize',()=>draw());
+
+function paint(){$('np').textContent=pass;$('nf').textContent=fail;$('nl').textContent=Math.max(0,total-pass-fail-skip);$('el').textContent=secs(clock);
+  const left=timeLeft();$('eta').textContent=left!=null&&total-pass-fail-skip>0?` · ${secs(left)} left`:'';
+  $('etaw').style.visibility=R&&total?'':'hidden';
+  $('nfw').classList.toggle('on',fail>0);draw();$('rate').innerHTML=rateHtml();
+  $('pbp').style.width=(total?pass/total*100:0)+'%';$('pbf').style.width=(total?fail/total*100:0)+'%';
+  if(ticksDirty)sizeTicks()}
+
+// ---------- clock ----------
+// Live: the clock follows the server's time. Replay: it runs at the chosen speed.
+// Either way it moves in small steps, so a page opened halfway through a run draws the same line.
+function tick(){
+  if(!R||loading){return}
+  const endRel=R.endRel;
+  let target=live?(endRel!=null?endRel:snow()-R.start):clock+100*speed;
+  if(!live&&ci>=R.log.length&&endRel!=null)target=Math.min(target,endRel);
+  if(target<clock)target=clock;
+  const rel=i=>R.log[i].t-R.start;let moved=false;
+  for(;;){
+    while(ci<R.log.length&&rel(ci)<=clock){apply(R.log[ci++]);moved=true}
+    if(clock>=target)break;
+    const nx=Math.min(target,clock+250);
+    while(ci<R.log.length&&rel(ci)<=nx){clock=Math.max(clock,rel(ci));apply(R.log[ci++])}
+    clock=nx;moved=true}
+  if(moved||!finished)paint()}
+setInterval(tick,100);
+
+// ---------- loading runs ----------
+async function load(id){
+  loading=id;pend=[];
+  try{const res=await fetch(api('/api/runs/'+encodeURIComponent(id)));if(!res.ok)throw new Error(res.status);
+    const d=await res.json();offset=d.serverNow-Date.now();
+    const start=(d.events.find(e=>e.type==='run-start')||d.events[0]||{t:d.meta.started}).t;
+    R={id,meta:d.meta,start,log:d.events,lastSeq:d.events.length?d.events.at(-1).seq:0,endRel:d.meta.ended?d.meta.ended-start:null,previous:d.previous};
+    pend.forEach(add);pend=[];
+  }catch(e){R=null}
+  loading=null;ci=0;live=true;resetModel();show(groups[0]);tick()}
+function add(ev){if(!R||ev.run!==R.id||ev.seq<=R.lastSeq)return;
+  if(ev.seq!==R.lastSeq+1){load(R.id);return}// missed something: start over from the server's copy
+  R.log.push(ev);R.lastSeq=ev.seq;if(ev.type==='run-end')R.endRel=ev.t-R.start;
+  if(ev.type==='run-start'&&ev.project){R.meta.project=ev.project}}
+
+// ---------- stream ----------
+function connect(){
+  const es=new EventSource(api('/api/stream'));
+  es.addEventListener('hello',e=>{const h=JSON.parse(e.data);offset=h.serverNow-Date.now();
+    latestId=h.latest;const want=PIN||h.latest;if(want&&(!R||R.id!==want))load(want).then(loadRuns);else if(R)load(R.id);loadRuns()});
+  es.onmessage=e=>{const ev=JSON.parse(e.data);
+    if(ev.type==='run-start'){latestId=ev.run;refreshRuns()}else if(ev.type==='run-end')refreshRuns();
+    if(loading){if(ev.run===loading)pend.push(ev);return}
+    // A new run takes over once the one on screen has finished.
+    if(ev.type==='run-start'&&!PIN&&(!R||(R.id!==ev.run&&R.endRel!=null))){load(ev.run).then(loadRuns);return}
+    add(ev)};
+}
+
+// ---------- run history ----------
+let hProject=null,hLimit=20,hTimer=null,latestId=null;
+const dayName=t=>{const d=new Date(t),n=new Date(),y=new Date(n);y.setDate(n.getDate()-1);
+  const same=(a,b)=>a.toDateString()===b.toDateString();
+  return same(d,n)?'Today':same(d,y)?'Yesterday':d.toLocaleDateString([],{month:'short',day:'numeric',...(d.getFullYear()!==n.getFullYear()?{year:'numeric'}:{})})};
+async function loadRuns(){
+  try{const q=`/api/runs?limit=${hLimit}`+(hProject?`&project=${encodeURIComponent(hProject)}`:'');
+    const res=await fetch(api(q));if(!res.ok)return;const d=await res.json();
+    // Project filter, only when there's more than one project.
+    $('pf').hidden=d.projects.length<2;
+    $('pf').innerHTML=[null,...d.projects].map(p=>`<button aria-pressed="${p===hProject}" data-p="${esc(p??'')}">${esc(p??'All')}</button>`).join('');
+    $('pf').querySelectorAll('button').forEach(b=>b.onclick=()=>{hProject=b.dataset.p||null;hLimit=20;loadRuns()});
+    $('runs').innerHTML=d.runs.map(m=>{const c=m.counts||{},st=!m.ended?'live':m.status==='fail'?'fail':m.status==='pass'?'pass':'';
+      const counts=!m.ended?'Running':`<b>${c.pass+(c.flaky||0)}</b> passed`+(c.fail?` · <span class="bad"><b>${c.fail}</b> failed</span>`:'')+(c.skip?` · ${c.skip} skipped`:'');
+      return `<button class="hrow" data-id="${esc(m.id)}" aria-current="${R&&R.id===m.id}"><i class="o ${st}"></i>
+        <span class="w"><span class="nm">${esc(m.project)}<code>${esc(m.command||'')}</code></span><span class="sub">${esc(m.host||'')} · ${dayName(m.started)} ${clockTime(m.started)}</span></span>
+        <span class="du num">${m.ended?secs(m.durationMs):''}</span><span class="ct num">${counts}</span></button>`}).join('');
+    $('runs').querySelectorAll('.hrow').forEach(b=>b.onclick=()=>openRun(b.dataset.id));
+    $('hempty').hidden=d.runs.length>0;$('more').hidden=d.total<=d.runs.length;
+    loadTrend();
+  }catch{}}
+const refreshRuns=()=>{clearTimeout(hTimer);hTimer=setTimeout(loadRuns,300)};
+
+// ---------- recent runs by feature ----------
+// One row per feature, one column per finished run (oldest left). A failed test makes the cell red, a flaky one
+// amber; otherwise the cell is brighter the longer the feature took compared with its usual (median) time, so a
+// row that brightens is a feature getting slower. The trend on the right is the feature's time per run.
+let TH=null,tHover=null,tCells=[],tG={cs:16,ch:15,g:3};
+async function loadTrend(){try{const res=await fetch(api('/api/history?limit=30'+(hProject?`&project=${encodeURIComponent(hProject)}`:'')));
+  if(!res.ok)return;TH=await res.json();drawTrend()}catch{}}
+function drawTrend(){const sec=$('trend');if(!TH||TH.runs.length<2||!TH.features.length){sec.hidden=true;return}sec.hidden=false;
+  const svg=$('tsvg'),W=svg.clientWidth||1000,narrow=W<520,LW=narrow?48:140,RW=narrow?0:150,mono='font-family="IBM Plex Mono,ui-monospace,monospace"';
+  const room=W-LW-RW,k=Math.min(TH.runs.length,Math.floor(room/16)),off=TH.runs.length-k,runs=TH.runs.slice(off);
+  // Many features: shorter rows, so a big suite's history stays about a screen tall.
+  const many=TH.features.length>14,cs=Math.min(36,Math.floor(room/k)),ch=many?9:narrow?12:15,RH=many?13:narrow?17:21,g=3;
+  $('trh').textContent=`Last ${k} runs${TH.project?' · '+TH.project:''}`;
+  $('trl').innerHTML=`<i class="f"></i> failed <i class="y"></i> flaky <i style="opacity:.25"></i><i style="opacity:.85"></i> quicker → slower than usual`;
+  let s='',y=0;tCells=[];
+  // Header: one dot per run, coloured by how it ended; the run on screen above is marked.
+  runs.forEach((r,c)=>{const cx=LW+c*cs+(cs-g)/2;
+    if(R&&R.id===r.id)s+=`<rect x="${LW+c*cs-2}" y="-2" width="${cs-g+4}" height="@H@" rx="4" fill="#fff" fill-opacity=".07"/>`;
+    s+=`<circle cx="${cx}" cy="6" r="3" fill="${r.status==='pass'?'#5ad46d':r.status==='fail'?'#ff5f57':'#4e4e55'}"/>`});
+  y=18;let lastSuite=null;const multi=new Set(TH.features.map(f=>f.suite)).size>1;
+  TH.features.forEach(f=>{
+    if(multi&&f.suite!==lastSuite){s+=`<text x="0" y="${y+(many?16:13)}" font-size="10.5" ${mono} fill="#7b7b83">${esc(f.label)}</text>`;y+=many?22:20}lastSuite=f.suite;
+    const cells=f.cells.slice(off),cy=y+RH/2,keyed=f.name&&f.name!==f.group;
+    const ms=cells.filter(Boolean).map(c=>c.ms).sort((a,b)=>a-b),med=ms[Math.floor(ms.length/2)]||1,timed=ms.at(-1)>0;
+    const bad=cells.at(-1)?.fail.length;
+    s+=`<text x="0" y="${cy+3.5}" font-size="${many?10:10.5}" ${mono} fill="${bad?'#ff5f57':'#b4b4ba'}">${esc(narrow&&f.group.length>6?f.group.slice(0,5)+'…':f.group)}</text>`;
+    if(keyed&&!narrow)s+=`<text x="${f.group.length*6.5+8}" y="${cy+3.5}" font-size="11" font-family="Inter,system-ui,sans-serif" fill="#7b7b83">${esc(f.name.length>12?f.name.slice(0,11)+'…':f.name)}</text>`;
+    cells.forEach((c,i)=>{const x=LW+i*cs,run=runs[i];tCells.push([x,cy-ch/2,f,c,run]);const on=tHover&&tHover[2]===f&&tHover[4]===run;
+      let a;if(!c)a=`fill="none" stroke="#fff" stroke-opacity=".08"`;
+      else if(c.fail.length)a=`fill="#ff5f57"`;else if(c.flaky.length)a=`fill="#f0b545" fill-opacity=".9"`;
+      else a=`fill="#fff" fill-opacity="${(timed?Math.min(.92,Math.max(.14,.45*Math.pow(c.ms/med,1.4))):.4).toFixed(2)}"`;
+      s+=`<rect x="${x+(c?0:.5)}" y="${cy-ch/2+(c?0:.5)}" width="${cs-g-(c?0:1)}" height="${ch-(c?0:1)}" rx="2.5" ${a}${on?' stroke="#fff" stroke-width="1.5"':''}/>`});
+    if(RW&&timed){const vals=cells.map(c=>c?c.ms:null),pts=[],sx=LW+k*cs+14,sw=Math.min(RW-70,W-LW-k*cs-80),lo=Math.min(...ms),hi=Math.max(...ms);
+      vals.forEach((v,i)=>{if(v!=null)pts.push([sx+(k>1?i/(k-1):0)*sw,cy+(many?4:5)-(hi>lo?(v-lo)/(hi-lo):.5)*(many?8:11)])});
+      if(pts.length>1)s+=`<polyline points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${pts.at(-1)[0].toFixed(1)}" cy="${pts.at(-1)[1].toFixed(1)}" r="2.5" fill="#fff"/>`;
+      // The latest run against the usual time before it.
+      const last=vals.at(-1),before=vals.slice(0,-1).filter(v=>v!=null).sort((a,b)=>a-b),bm=before[Math.floor(before.length/2)];
+      if(last!=null&&bm){const d=Math.round((last-bm)/bm*100);s+=`<text x="${sx+sw+52}" y="${cy+3.5}" text-anchor="end" font-size="10.5" ${mono} fill="${d>=25?'#f0b545':'#7b7b83'}">${d>0?'+':''}${d}%</text>`}}
+    y+=RH});
+  tG={cs,ch,g};svg.setAttribute('viewBox',`0 -2 ${W} ${y+2}`);svg.setAttribute('height',y+2);svg.innerHTML=s.replace('@H@',y+2);tTip()}
+function tTip(){const t=$('ttip');if(!tHover){t.hidden=true;return}const [x,y,f,c,run]=tHover,W=$('tsvg').clientWidth;
+  const when=`${dayName(run.started)} ${clockTime(run.started)}`;
+  t.innerHTML=`<b></b><span class="i"></span><span class="d"></span><span class="p"></span>`;
+  t.querySelector('b').innerHTML=c?esc(fmtMs(c.ms))+(c.fail.length?`<small class="f">${c.fail.length} failed</small>`:c.flaky.length?`<small class="y">flaky</small>`:''):'Not in this run';
+  t.querySelector('.i').textContent=f.group+(f.name&&f.name!==f.group?' · '+f.name:'');
+  t.querySelector('.d').textContent=c&&(c.fail.length||c.flaky.length)?[...c.fail,...c.flaky].slice(0,3).join(', ')+(c.fail.length+c.flaky.length>3?' …':''):(c?`${c.n} tests`:'');
+  t.querySelector('.p').textContent=`${when} · click to open`;
+  t.hidden=false;const tw=t.offsetWidth;t.style.left=(x+30+tw<=W?x+30:Math.max(0,x-12-tw))+'px';t.style.top=Math.max(0,y-t.offsetHeight/2+8)+'px'}
+const tAt=e=>{const r=$('tsvg').getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;return tCells.find(([x,y])=>px>=x-1&&px<x+tG.cs&&py>=y-3&&py<y+tG.ch+3)||null};
+$('tsvg').addEventListener('pointermove',e=>{const h=tAt(e);if(h?.[2]!==tHover?.[2]||h?.[4]!==tHover?.[4]){tHover=h;drawTrend()}});
+$('tsvg').addEventListener('pointerleave',()=>{tHover=null;drawTrend()});
+$('tsvg').addEventListener('click',e=>{const h=tAt(e);if(h)openRun(h[4].id)});
+addEventListener('resize',()=>drawTrend());
+$('more').onclick=()=>{hLimit+=40;loadRuns()};
+function setUrl(id){const u=new URLSearchParams(location.search);if(id)u.set('run',id);else u.delete('run');
+  history.pushState({run:id},'',location.pathname+(u.toString()?'?'+u:''))}
+// Opening a past run shows how it ended; Replay plays it again.
+function openRun(id){PIN=id;setUrl(id);$('livebtn').hidden=false;load(id).then(()=>{scrollTo({top:0,behavior:'smooth'});loadRuns()})}
+$('livebtn').onclick=()=>{PIN=null;setUrl(null);$('livebtn').hidden=true;if(latestId)load(latestId).then(loadRuns)};
+addEventListener('popstate',()=>{PIN=new URLSearchParams(location.search).get('run');$('livebtn').hidden=!PIN;const id=PIN||latestId;if(id)load(id).then(loadRuns)});
+$('livebtn').hidden=!PIN;
+[['s1',1],['s10',10],['s60',60]].forEach(([id,v])=>$(id).onclick=()=>{speed=v;document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',b.id===id))});
+$('again').onclick=()=>{if(!R)return;live=false;ci=0;resetModel();show(groups[0]);tick()};
+resetModel();paint();connect();
+</script>
+</body>
+</html>
